@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Сброс пароля</title>
+    <style>
+        body {
+            padding: 1rem;
+            font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        input {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: transparent;
+            border: 1px solid black;
+            color: black;
+        }
+
+        label {
+            display: block;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            body {
+                background-color: #222;
+                color: white;
+            }
+
+            input {
+                border: 1px solid #ffffff;
+                color: #ffffff;
+            }
+        }
+    </style>
+</head>
+<body>
+<h1>Сброс пароля</h1>
+{{ if .UniqueLinkTriggered }}
+    <p>Напишите здесь ваш новый пароль</p>
+    <form action="" method="post">
+        <label for="password">Ваш новый пароль</label>
+        <input type="password" name="password" id="password" placeholder="Введите свой новый пароль">
+    </form>
+{{ else }}
+    {{ if .Sent }}
+        <p>Сообщение о сбросе пароля было отправлено, если такой адрес существует.</p>
+    {{ else }}
+        <form action="/reset" method="post">
+            <label for="email">Email адрес</label>
+            <input type="email" name="email" id="email" placeholder="Введите свой email адрес">
+        </form>
+    {{ end }}
+{{ end }}
+</body>
+</html>
