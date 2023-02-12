@@ -4,7 +4,7 @@
 
 Runs an HTTP server that serves password reset form.
 
-Still Work In Progress!
+Still Work In Progress! And so no LICENSE file is provided. It will be here eventually.
 
 ## Installation
 
