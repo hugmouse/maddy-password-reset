@@ -1,4 +1,4 @@
-module naebet-password-reset
+module github.com/hugmouse/maddy-password-reset
 
 go 1.20
 
