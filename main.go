@@ -66,6 +66,8 @@ const (
 
 	// HTTPServerPort is an HTTP server port
 	HTTPServerPort = 1323
+
+	DebugBypassMailSending = true
 )
 
 const (
@@ -97,26 +99,34 @@ func (t *Template) Render(w io.Writer, name string, data interface{}, _ echo.Con
 }
 
 func main() {
-	log.Println("[EmailMessage const] Checking your template")
-	if !strings.Contains(EmailMessage, "$RESET_LINK") {
-		log.Fatalln("[EmailMessage const] Your message template does not contain $RESET_LINK, so user can't reset his password!")
-	}
+	var auth smtp.Auth
+	if !DebugBypassMailSending {
+		log.Println("[EmailMessage const] Checking your template")
+		if !strings.Contains(EmailMessage, "$RESET_LINK") {
+			log.Fatalln("[EmailMessage const] Your message template does not contain $RESET_LINK, so user can't reset his password!")
+		}
 
-	log.Println("[EmailTemplate const] Checking your template")
-	if !strings.Contains(EmailTemplate, "$TO") {
-		log.Fatalln("[EmailTemplate const] Your template does not contain $TO, make sure to add it.")
-	}
+		log.Println("[EmailTemplate const] Checking your template")
+		if !strings.Contains(EmailTemplate, "$TO") {
+			log.Fatalln("[EmailTemplate const] Your template does not contain $TO, make sure to add it.")
+		}
 
-	if !strings.Contains(EmailTemplate, "$FROM") {
-		log.Fatalln("[EmailTemplate const] Your template does not contain $FROM, make sure to add it.")
-	}
+		if !strings.Contains(EmailTemplate, "$FROM") {
+			log.Fatalln("[EmailTemplate const] Your template does not contain $FROM, make sure to add it.")
+		}
 
-	if !strings.Contains(EmailTemplate, "$SUBJECT") {
-		log.Fatalln("[EmailTemplate const] Your template does not contain $SUBJECT, make sure to add it, so user can see a message preview.")
-	}
+		if !strings.Contains(EmailTemplate, "$SUBJECT") {
+			log.Fatalln("[EmailTemplate const] Your template does not contain $SUBJECT, make sure to add it, so user can see a message preview.")
+		}
 
-	if !strings.Contains(EmailTemplate, "$MESSAGE") {
-		log.Fatalln("[EmailTemplate const] Your template does not contain $MESSAGE, make sure to add it.")
+		if !strings.Contains(EmailTemplate, "$MESSAGE") {
+			log.Fatalln("[EmailTemplate const] Your template does not contain $MESSAGE, make sure to add it.")
+		}
+
+		// Set up authentication information.
+		auth = smtp.PlainAuth("", SMTPMailUsername, SMTPMailPassword, SMTPMailHostname)
+	} else {
+		log.Println("[SMTP] Debug mode enabled, not checking email template")
 	}
 
 	log.Println("[Sqlite] Loading Maddy's credentials database")
@@ -124,9 +134,6 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
-
-	// Set up authentication information.
-	auth := smtp.PlainAuth("", SMTPMailUsername, SMTPMailPassword, SMTPMailHostname)
 
 	log.Println("[Cache] Registering cache for password resets")
 	passwordResetCache := cache.New(CacheTime)
@@ -178,17 +185,21 @@ func main() {
 			// and send the email all in one step.
 			to := []string{mail}
 
-			msg := strings.ReplaceAll(EmailTemplate, "$TO", mail)
-			msg = strings.ReplaceAll(msg, "$FROM", EmailFrom)
-			msg = strings.ReplaceAll(msg, "$SUBJECT", EmailSubject)
-			msg = strings.ReplaceAll(msg, "$MESSAGE", EmailMessage)
-			msg = strings.ReplaceAll(msg, "$RESET_LINK", HostingURL+"reset/"+random)
+			if !DebugBypassMailSending {
+				msg := strings.ReplaceAll(EmailTemplate, "$TO", mail)
+				msg = strings.ReplaceAll(msg, "$FROM", EmailFrom)
+				msg = strings.ReplaceAll(msg, "$SUBJECT", EmailSubject)
+				msg = strings.ReplaceAll(msg, "$MESSAGE", EmailMessage)
+				msg = strings.ReplaceAll(msg, "$RESET_LINK", HostingURL+"reset/"+random)
 
-			//msg := []byte(fmt.Sprintf(EmailMessage, mail, SMTPMailUsername, HostingURL+"reset/"+random))
-			err := smtp.SendMail(MXServer, auth, SMTPMailUsername, to, []byte(msg))
-			if err != nil {
-				log.Println("[SMTP] Failed to send mail - ", err)
-				return
+				err := smtp.SendMail(MXServer, auth, SMTPMailUsername, to, []byte(msg))
+				if err != nil {
+					log.Println("[SMTP] Failed to send mail - ", err)
+					return
+				}
+			} else {
+				log.Println("[SMTP] Debug mode enabled, not sending email")
+				log.Println("[SMTP] Reset link:", HostingURL+"reset/"+random)
 			}
 		}()
 		return c.Render(http.StatusOK, "reset.gohtml", map[string]any{
@@ -215,7 +226,7 @@ func main() {
 			passwordResetCache.Delete(key)
 		}
 
-		maddyExecCommand := exec.Command("maddy", "creds", "password", mail.(string), "-p", password)
+		maddyExecCommand := exec.Command("maddy", "creds", "password", "-p", password, mail.(string))
 		err = maddyExecCommand.Run()
 		if err != nil {
 			log.Println("[maddyExecCommand] Failed to execute Maddy's password reset command - ", err)
