@@ -3,22 +3,23 @@ package main
 import (
 	cryptorand "crypto/rand"
 	"database/sql"
-	"github.com/akyoto/cache"
-	"github.com/hugmouse/maddy-password-reset/templates"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"fmt"
 	"html/template"
 	"io"
 	"log"
 	"math/big"
-	_ "modernc.org/sqlite"
 	"net/http"
+	"net/mail"
 	"net/smtp"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
-	"regexp"
+	_ "modernc.org/sqlite"
+	"github.com/akyoto/cache"
+	"github.com/hugmouse/maddy-password-reset/templates"
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 )
 
 const (
@@ -99,6 +100,22 @@ func (t *Template) Render(w io.Writer, name string, data interface{}, _ echo.Con
 	return t.templates.ExecuteTemplate(w, name, data)
 }
 
+func isValidEmailAddress(email string) error {
+	// Parse the email address using addressparser
+	mail, err := mail.ParseAddress(email)
+	if err != nil {
+		return err
+	}
+
+	// Check if the parsed address is not nil and has a valid email format
+	if mail == nil || mail.Address == "" {
+		log.Fatalln("Invalid Email Address!")
+		return err
+	}
+
+	return nil
+}
+
 func main() {
 	var auth smtp.Auth
 	if !DebugBypassMailSending {
@@ -161,54 +178,52 @@ func main() {
 
 	e.POST("/reset", func(c echo.Context) error {
 		mail := c.FormValue("email")
-		// Define a regular expression to match any non-alphanumeric characters
-		re := regexp.MustCompile("[^a-zA-Z0-9]+")
-
-		// Replace any non-alphanumeric characters with an empty string
-		sanitizedMail := re.ReplaceAllString(mail, "")
-		
-		go func() {
-			// Check if there is already a password reset
-			_, exists := passwordResetCache.Get(sanitizedMail)
-			if exists {
-				log.Printf("[Cache] Mail %q already exists in cache, ignoring\n", sanitizedMail)
-				return
-			}
-
-			// Check if it's exists in Maddy db
-			// It will return an error is there is no user found
-			var password string
-			err = db.QueryRow("SELECT value FROM passwords WHERE key = ?", sanitizedMail).Scan(&password)
-			if err != nil {
-				log.Println("[Sqlite] An error occurred while trying to get password from Maddy database:", err)
-				return
-			}
-
-			// Generating an unique key
-			random := randomString(10)
-			passwordResetCache.Set(random, sanitizedMail, CacheTime)
-
-			// Connect to the server, authenticate, set the sender and recipient,
-			// and send the email all in one step.
-			to := []string{sanitizedMail}
-
-			if !DebugBypassMailSending {
-				msg := strings.ReplaceAll(EmailTemplate, "$TO", sanitizedMail)
-				msg = strings.ReplaceAll(msg, "$FROM", EmailFrom)
-				msg = strings.ReplaceAll(msg, "$SUBJECT", EmailSubject)
-				msg = strings.ReplaceAll(msg, "$MESSAGE", EmailMessage)
-				msg = strings.ReplaceAll(msg, "$RESET_LINK", HostingURL+"reset/"+random)
-
-				err := smtp.SendMail(MXServer, auth, SMTPMailUsername, to, []byte(msg))
-				if err != nil {
-					log.Println("[SMTP] Failed to send mail - ", err)
+		if err := isValidEmailAddress(mail); err != nil {
+			fmt.Println("Invalid email address:", err)
+		} else {
+			go func() {
+				// Check if there is already a password reset
+				_, exists := passwordResetCache.Get(mail)
+				if exists {
+					log.Printf("[Cache] Mail %q already exists in cache, ignoring\n", mail)
 					return
 				}
-			} else {
-				log.Println("[SMTP] Debug mode enabled, not sending email")
-				log.Println("[SMTP] Reset link:", HostingURL+"reset/"+random)
-			}
-		}()
+
+				// Check if it's exists in Maddy db
+				// It will return an error is there is no user found
+				var password string
+				err = db.QueryRow("SELECT value FROM passwords WHERE key = ?", mail).Scan(&password)
+				if err != nil {
+					log.Println("[Sqlite] An error occurred while trying to get password from Maddy database:", err)
+					return
+				}
+
+				// Generating an unique key
+				random := randomString(10)
+				passwordResetCache.Set(random, mail, CacheTime)
+
+				// Connect to the server, authenticate, set the sender and recipient,
+				// and send the email all in one step.
+				to := []string{mail}
+
+				if !DebugBypassMailSending {
+					msg := strings.ReplaceAll(EmailTemplate, "$TO", mail)
+					msg = strings.ReplaceAll(msg, "$FROM", EmailFrom)
+					msg = strings.ReplaceAll(msg, "$SUBJECT", EmailSubject)
+					msg = strings.ReplaceAll(msg, "$MESSAGE", EmailMessage)
+					msg = strings.ReplaceAll(msg, "$RESET_LINK", HostingURL+"reset/"+random)
+
+					err := smtp.SendMail(MXServer, auth, SMTPMailUsername, to, []byte(msg))
+					if err != nil {
+						log.Println("[SMTP] Failed to send mail - ", err)
+						return
+					}
+				} else {
+					log.Println("[SMTP] Debug mode enabled, not sending email")
+					log.Println("[SMTP] Reset link:", HostingURL+"reset/"+random)
+				}
+			}()
+		}
 		return c.Render(http.StatusOK, "reset.gohtml", map[string]any{
 			"Sent": true,
 		})
@@ -228,12 +243,12 @@ func main() {
 	e.POST("/reset/:key", func(c echo.Context) error {
 		key := c.Param("key")
 		password := c.FormValue("password")
-		sanitizedMail, exists := passwordResetCache.Get(key)
+		mail, exists := passwordResetCache.Get(key)
 		if exists {
 			passwordResetCache.Delete(key)
 		}
 
-		maddyExecCommand := exec.Command("maddy", "creds", "password", "-p", password, sanitizedMail.(string))
+		maddyExecCommand := exec.Command("maddy", "creds", "password", "-p", password, mail.(string))
 		err = maddyExecCommand.Run()
 		if err != nil {
 			log.Println("[maddyExecCommand] Failed to execute Maddy's password reset command - ", err)
@@ -242,6 +257,7 @@ func main() {
 
 		return c.String(http.StatusOK, "All good! Your password is now changed.")
 	})
+
 	log.Println("[echo] Starting Echo web server")
 	e.Logger.Fatal(e.Start(":" + strconv.Itoa(HTTPServerPort)))
 }
