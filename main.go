@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"regexp"
 )
 
 const (
@@ -160,18 +161,24 @@ func main() {
 
 	e.POST("/reset", func(c echo.Context) error {
 		mail := c.FormValue("email")
+		// Define a regular expression to match any non-alphanumeric characters
+		re := regexp.MustCompile("[^a-zA-Z0-9]+")
+
+		// Replace any non-alphanumeric characters with an empty string
+		sanitizedMail := re.ReplaceAllString(mail, "")
+		
 		go func() {
 			// Check if there is already a password reset
-			_, exists := passwordResetCache.Get(mail)
+			_, exists := passwordResetCache.Get(sanitizedMail)
 			if exists {
-				log.Printf("[Cache] Mail %q already exists in cache, ignoring\n", mail)
+				log.Printf("[Cache] Mail %q already exists in cache, ignoring\n", sanitizedMail)
 				return
 			}
 
 			// Check if it's exists in Maddy db
 			// It will return an error is there is no user found
 			var password string
-			err = db.QueryRow("SELECT value FROM passwords WHERE key = ?", mail).Scan(&password)
+			err = db.QueryRow("SELECT value FROM passwords WHERE key = ?", sanitizedMail).Scan(&password)
 			if err != nil {
 				log.Println("[Sqlite] An error occurred while trying to get password from Maddy database:", err)
 				return
@@ -179,14 +186,14 @@ func main() {
 
 			// Generating an unique key
 			random := randomString(10)
-			passwordResetCache.Set(random, mail, CacheTime)
+			passwordResetCache.Set(random, sanitizedMail, CacheTime)
 
 			// Connect to the server, authenticate, set the sender and recipient,
 			// and send the email all in one step.
-			to := []string{mail}
+			to := []string{sanitizedMail}
 
 			if !DebugBypassMailSending {
-				msg := strings.ReplaceAll(EmailTemplate, "$TO", mail)
+				msg := strings.ReplaceAll(EmailTemplate, "$TO", sanitizedMail)
 				msg = strings.ReplaceAll(msg, "$FROM", EmailFrom)
 				msg = strings.ReplaceAll(msg, "$SUBJECT", EmailSubject)
 				msg = strings.ReplaceAll(msg, "$MESSAGE", EmailMessage)
@@ -221,12 +228,12 @@ func main() {
 	e.POST("/reset/:key", func(c echo.Context) error {
 		key := c.Param("key")
 		password := c.FormValue("password")
-		mail, exists := passwordResetCache.Get(key)
+		sanitizedMail, exists := passwordResetCache.Get(key)
 		if exists {
 			passwordResetCache.Delete(key)
 		}
 
-		maddyExecCommand := exec.Command("maddy", "creds", "password", "-p", password, mail.(string))
+		maddyExecCommand := exec.Command("maddy", "creds", "password", "-p", password, sanitizedMail.(string))
 		err = maddyExecCommand.Run()
 		if err != nil {
 			log.Println("[maddyExecCommand] Failed to execute Maddy's password reset command - ", err)
@@ -235,7 +242,6 @@ func main() {
 
 		return c.String(http.StatusOK, "All good! Your password is now changed.")
 	})
-
 	log.Println("[echo] Starting Echo web server")
 	e.Logger.Fatal(e.Start(":" + strconv.Itoa(HTTPServerPort)))
 }
