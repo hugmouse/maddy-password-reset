@@ -109,7 +109,7 @@ func isValidEmailAddress(email string) error {
 
 	// Check if the parsed address is not nil and has a valid email format
 	if mail == nil || mail.Address == "" {
-		log.Fatalln("Invalid Email Address!")
+		log.Println("[AddressParser]: Invalid Email Address: %v")
 		return err
 	}
 
@@ -178,9 +178,11 @@ func main() {
 
 	e.POST("/reset", func(c echo.Context) error {
 		mail := c.FormValue("email")
-		if err := isValidEmailAddress(mail); err != nil {
-			fmt.Println("Invalid email address:", err)
-		} else {
+		err = isValidEmailAddress(mail)
+		if err != nil {
+			log.Println("[AddressParser]: Invalid mail address: ", err)
+			return err
+}
 			go func() {
 				// Check if there is already a password reset
 				_, exists := passwordResetCache.Get(mail)
@@ -223,7 +225,7 @@ func main() {
 					log.Println("[SMTP] Reset link:", HostingURL+"reset/"+random)
 				}
 			}()
-		}
+
 		return c.Render(http.StatusOK, "reset.gohtml", map[string]any{
 			"Sent": true,
 		})
