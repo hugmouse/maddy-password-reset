@@ -181,7 +181,7 @@ func main() {
 		err = isValidEmailAddress(mail)
 		if err != nil {
 			log.Println("[AddressParser]: Invalid mail address: ", err)
-			return err
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid mail address: %v", err))
 		}
 		go func() {
 			// Check if there is already a password reset
