@@ -18,6 +18,7 @@ package main
 import (
 	cryptorand "crypto/rand"
 	"database/sql"
+	"fmt"
 	"github.com/akyoto/cache"
 	"github.com/hugmouse/maddy-password-reset/templates"
 	"github.com/labstack/echo/v4"
@@ -28,6 +29,7 @@ import (
 	"math/big"
 	_ "modernc.org/sqlite"
 	"net/http"
+	"net/mail"
 	"net/smtp"
 	"os/exec"
 	"strconv"
@@ -114,6 +116,22 @@ func (t *Template) Render(w io.Writer, name string, data interface{}, _ echo.Con
 	return t.templates.ExecuteTemplate(w, name, data)
 }
 
+func isValidEmailAddress(email string) error {
+	// Parse the email address using addressparser
+	mail, err := mail.ParseAddress(email)
+	if err != nil {
+		return err
+	}
+
+	// Check if the parsed address is not nil and has a valid email format
+	if mail == nil || mail.Address == "" {
+		log.Println("[AddressParser]: Invalid Email Address: %v")
+		return err
+	}
+
+	return nil
+}
+
 func main() {
 	var auth smtp.Auth
 	if !DebugBypassMailSending {
@@ -176,6 +194,11 @@ func main() {
 
 	e.POST("/reset", func(c echo.Context) error {
 		mail := c.FormValue("email")
+		err = isValidEmailAddress(mail)
+		if err != nil {
+			log.Println("[AddressParser]: Invalid mail address: ", err)
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid mail address: %v", err))
+		}
 		go func() {
 			// Check if there is already a password reset
 			_, exists := passwordResetCache.Get(mail)
@@ -218,6 +241,7 @@ func main() {
 				log.Println("[SMTP] Reset link:", HostingURL+"reset/"+random)
 			}
 		}()
+
 		return c.Render(http.StatusOK, "reset.gohtml", map[string]any{
 			"Sent": true,
 		})
