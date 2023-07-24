@@ -20,6 +20,7 @@ import (
 	"database/sql"
 	"github.com/akyoto/cache"
 	"github.com/hugmouse/maddy-password-reset/templates"
+	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"html/template"
 	"io"
