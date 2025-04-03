@@ -88,7 +88,7 @@ const (
 	HTTPServerPort = 1323
 
 	// DebugBypassMailSending - if true, skips SMTP checks and sending, logs reset link instead.
-	DebugBypassMailSending = true
+	DebugBypassMailSending = false
 )
 
 // ---------------------------------------------------------------
