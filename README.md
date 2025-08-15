@@ -5,14 +5,24 @@
 Runs an HTTP server that serves a password reset form. 
 It should be installed on the same server where Maddy is running.
 
+Essentially, this is a simple web-based wrapper for Maddy's CLI
+that you can customize to your specific case.
+
 ## How It Works
 
-It runs the `maddy creds password -p` command to change a user's password.
+The service provides two ways to change passwords:
+
+1. **Password Reset**: Sends a reset link via email
+2. **Password Change**: Allows users to change their password using their current password
+
+Both methods use the `maddy creds password -p` command to change passwords. Password verification retrieves the bcrypt hash from Maddy's database and verifies it directly.
 
 ### Use Cases
 
-- You are currently logged into your mailbox and want to reset the password.
-    - For example, you registered a user, and the user wants to change their password.
+- **Password Reset**: User forgot their password and needs to reset it via email
+    - This is more for the case when you have an active email session, but want to change your current password via special reset link
+- **Password Change**: User knows their current password and wants to change it directly
+    - For example, you registered a user, and the user wants to change their password
 
 ## Installation
 
@@ -35,8 +45,34 @@ Make sure to configure it first! The first compilation will take a moderate amou
 
 By default, the web server starts on `:1323`. Make sure you hide it behind a reverse proxy.
 
-You will probably need to edit the `reset.gohtml` template to suit your needs. 
-For now, it contains a reset page in Russian for my hobby mail service.
+### Available translations
+
+Templates are available in Russian and English languages.
+
+To use English, replace references to `.gohtml` with `.en.gohtml`.
+
+### Available Routes
+
+Pages do not rely on JavaScript, so you can trigger them via Curl or some other client.
+
+- **Password Reset**:
+  - `GET /reset` - Display password reset form
+  - `POST /reset` - Submit email for reset link
+  - `GET /reset/:token` - Display new password form (from email link)  
+  - `POST /reset/:token` - Submit new password
+
+- **Password Change**:
+  - `GET /change` - Display password change form
+  - `POST /change` - Submit current and new passwords
+
+### Templates
+
+You will probably need to edit the templates to suit your needs:
+
+- **Password Reset**: `reset.gohtml` (Russian), `reset.en.gohtml` (English)
+- **Password Change**: `change.gohtml` (Russian), `change.en.gohtml` (English)
+
+By default, the reset templates are configured for Russian, but English templates are also available.
 
 The only way to change the configuration is to modify the constants in the `main.go` file:
 

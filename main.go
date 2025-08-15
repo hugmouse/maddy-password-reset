@@ -24,6 +24,7 @@ import (
 	"github.com/hugmouse/maddy-password-reset/templates"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"golang.org/x/crypto/bcrypt"
 	"html/template"
 	"io"
 	"log"
@@ -88,7 +89,7 @@ const (
 	HTTPServerPort = 1323
 
 	// DebugBypassMailSending - if true, skips SMTP checks and sending, logs reset link instead.
-	DebugBypassMailSending = false
+	DebugBypassMailSending = true
 )
 
 // ---------------------------------------------------------------
@@ -168,6 +169,18 @@ const (
 	logMsgMaddyExecFailedFmt  = "[Maddy] Failed to execute Maddy password reset command for %s: %v. Output: %s"
 	logMsgMaddyExecSuccessFmt = "[Maddy] Successfully reset password for user %s. Output: %s"
 
+	// Password Change Process
+	logMsgChangeInvalidEmailFmt         = "[Handler POST /change] Invalid email address provided '%s': %v"
+	logMsgChangeEmptyCurrentPasswordFmt = "[Handler POST /change] Empty current password provided for user %s"
+	logMsgChangeEmptyNewPasswordFmt     = "[Handler POST /change] Empty new password provided for user %s"
+	logMsgChangeUserNotFoundFmt         = "[Handler POST /change] User email %q not found in Maddy database"
+	logMsgChangeVerifyAttemptFmt        = "[Change] Attempting to verify current password for user %s"
+	logMsgChangeVerifyFailedFmt         = "[Change] Failed to verify current password for user %s: %v. Output: %s"
+	logMsgChangeVerifySuccessFmt        = "[Change] Current password verified for user %s"
+	logMsgChangePasswordAttemptFmt      = "[Change] Attempting to change password for user %s"
+	logMsgChangePasswordFailedFmt       = "[Change] Failed to change password for user %s: %v. Output: %s"
+	logMsgChangePasswordSuccessFmt      = "[Change] Successfully changed password for user %s"
+
 	// Other
 	logMsgRandNumGenFailedCriticalFmt = "CRITICAL: Failed to generate random number: %v"
 )
@@ -208,6 +221,30 @@ func isValidEmailAddress(email string) error {
 		return errors.New("invalid email format: missing @ symbol")
 	}
 
+	return nil
+}
+
+func verifyCurrentPassword(db *sql.DB, email, currentPassword string) error {
+	log.Printf(logMsgChangeVerifyAttemptFmt, email)
+
+	var storedPasswordHash string
+	dbErr := db.QueryRow("SELECT value FROM passwords WHERE key = ?", email).Scan(&storedPasswordHash)
+
+	if dbErr != nil {
+		if errors.Is(dbErr, sql.ErrNoRows) {
+			log.Printf(logMsgChangeUserNotFoundFmt, email)
+			return fmt.Errorf("user not found")
+		}
+		log.Printf(logMsgDbQueryErrorFmt, email, dbErr)
+		return fmt.Errorf("database error")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(storedPasswordHash), []byte(currentPassword)); err != nil {
+		log.Printf(logMsgChangeVerifyFailedFmt, email, err, "bcrypt comparison failed")
+		return fmt.Errorf("current password is incorrect")
+	}
+
+	log.Printf(logMsgChangeVerifySuccessFmt, email)
 	return nil
 }
 
@@ -469,8 +506,75 @@ func main() {
 		})
 	})
 
+	// Password change routes
+	e.GET("/change", func(c echo.Context) error {
+		return c.Render(http.StatusOK, "change.gohtml", nil)
+	})
+
+	e.POST("/change", func(c echo.Context) error {
+		email := c.FormValue("email")
+		currentPassword := c.FormValue("current_password")
+		newPassword := c.FormValue("new_password")
+
+		if err := isValidEmailAddress(email); err != nil {
+			log.Printf(logMsgChangeInvalidEmailFmt, email, err)
+			return c.Render(http.StatusBadRequest, "change.gohtml", map[string]any{
+				"Error": "Invalid email address format provided.",
+			})
+		}
+
+		if currentPassword == "" {
+			log.Printf(logMsgChangeEmptyCurrentPasswordFmt, email)
+			return c.Render(http.StatusBadRequest, "change.gohtml", map[string]any{
+				"Error": "Current password is required.",
+			})
+		}
+
+		if newPassword == "" {
+			log.Printf(logMsgChangeEmptyNewPasswordFmt, email)
+			return c.Render(http.StatusBadRequest, "change.gohtml", map[string]any{
+				"Error": "New password is required.",
+			})
+		}
+
+		var dummy int
+		dbErr := db.QueryRow("SELECT 1 FROM passwords WHERE key = ?", email).Scan(&dummy)
+		if dbErr != nil {
+			if errors.Is(dbErr, sql.ErrNoRows) {
+				log.Printf(logMsgChangeUserNotFoundFmt, email)
+			} else {
+				log.Printf(logMsgDbQueryErrorFmt, email, dbErr)
+			}
+			return c.Render(http.StatusBadRequest, "change.gohtml", map[string]any{
+				"Error": "Invalid email address or current password.",
+			})
+		}
+
+		if err := verifyCurrentPassword(db, email, currentPassword); err != nil {
+			return c.Render(http.StatusBadRequest, "change.gohtml", map[string]any{
+				"Error": "Invalid email address or current password.",
+			})
+		}
+
+		log.Printf(logMsgChangePasswordAttemptFmt, email)
+		maddyExecCommand := exec.Command("maddy", "creds", "password", "-p", newPassword, email)
+		output, execErr := maddyExecCommand.CombinedOutput()
+
+		if execErr != nil {
+			log.Printf(logMsgChangePasswordFailedFmt, email, execErr, string(output))
+			return c.Render(http.StatusInternalServerError, "change.gohtml", map[string]any{
+				"Error": "Failed to change password due to a server error.",
+			})
+		}
+
+		log.Printf(logMsgChangePasswordSuccessFmt, email)
+		return c.Render(http.StatusOK, "change.gohtml", map[string]any{
+			"Success": "Password successfully changed! You can now log in with your new password.",
+		})
+	})
+
 	serverAddr := ":" + strconv.Itoa(HTTPServerPort)
-	log.Printf(logMsgEchoStartFmt, serverAddr) // Use Printf for format string
+	log.Printf(logMsgEchoStartFmt, serverAddr)
 	if err := e.Start(serverAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf(logMsgEchoStartFailedFmt, err)
 	}

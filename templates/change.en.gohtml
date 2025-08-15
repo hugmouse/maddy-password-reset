@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Change Password</title>
+    <style>
+        body {
+            padding: 1rem;
+            font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        input {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: transparent;
+            border: 1px solid black;
+            color: black;
+            width: 100%;
+            max-width: 300px;
+        }
+
+        label {
+            display: block;
+            margin-top: 1rem;
+        }
+
+        button {
+            margin-top: 1rem;
+            padding: 1rem 2rem;
+            background: transparent;
+            border: 1px solid black;
+            color: black;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: black;
+            color: white;
+        }
+
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            body {
+                background-color: #222;
+                color: white;
+            }
+
+            input, button {
+                border: 1px solid #ffffff;
+                color: #ffffff;
+            }
+
+            button:hover {
+                background: white;
+                color: black;
+            }
+        }
+    </style>
+</head>
+<body>
+<h1>Change Password</h1>
+
+{{ if .Error }}
+    <p class="error">{{ .Error }}</p>
+{{ end }}
+
+{{ if .Success }}
+    <p class="success">{{ .Success }}</p>
+{{ else }}
+    <p>Enter your email, current password, and new password to change your password.</p>
+    <form action="/change" method="post">
+        <label for="email">Email address</label>
+        <input type="email" name="email" id="email" placeholder="Enter your email address" required>
+        
+        <label for="current_password">Current password</label>
+        <input type="password" name="current_password" id="current_password" placeholder="Enter your current password" required>
+        
+        <label for="new_password">New password</label>
+        <input type="password" name="new_password" id="new_password" placeholder="Enter your new password" required>
+        
+        <button type="submit">Change Password</button>
+    </form>
+{{ end }}
+
+<p><a href="/reset">Forgot your password? Use password reset</a></p>
+</body>
+</html>
