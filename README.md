@@ -2,6 +2,9 @@
 
 # Maddy Password Reset Service
 
+> [!WARNING]
+> This project is deprecated. This repo will no longer receive updates. Consider using something else.
+
 Runs an HTTP server that serves a password reset form. 
 It should be installed on the same server where Maddy is running.
 
